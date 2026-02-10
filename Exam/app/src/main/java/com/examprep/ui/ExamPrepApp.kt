@@ -41,13 +41,11 @@ import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.filled.Description // For Tests/Categories
-import androidx.compose.material.icons.filled.WorkspacePremium // For Super Pass
-import androidx.compose.material.icons.filled.CardMembership // For Pass
 import androidx.compose.material.icons.filled.Lightbulb // For QuickAction "New Test Series"
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.School // For Study Notes
-import androidx.compose.material.icons.filled.LiveTv // For Live Test
 import androidx.compose.material.icons.filled.Quiz // For Live Quizzes
-import androidx.compose.material.icons.filled.EmojiEvents // For Rankers Test
 import androidx.compose.material.icons.filled.Article // For Prev. Papers
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -116,7 +114,11 @@ import com.examprep.data.models.Question
 import com.examprep.data.models.TestSeries
 import com.examprep.data.supabase.SupabaseService
 import com.examprep.ui.auth.LoginScreen
+import com.examprep.ui.ebooks.EbookReaderScreen
+import com.examprep.ui.ebooks.EbooksScreen
 import com.examprep.ui.home.HomeViewModel
+import com.examprep.ui.pdf.PdfReaderScreen
+import com.examprep.ui.pdf.PdfSectionScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.vector.ImageVector // Import ImageVector
@@ -124,11 +126,9 @@ import androidx.compose.ui.graphics.vector.ImageVector // Import ImageVector
 // Define sealed class for Bottom Navigation Items
 sealed class BottomNavItem(val route: String, val icon: ImageVector, val label: String) {
     object Home : BottomNavItem("home", Icons.Default.Home, "Home")
-    object Tests : BottomNavItem("categoryList", Icons.Default.Description, "Category") // RENAMED: Tests -> Category
-    object Super : BottomNavItem("super", Icons.Default.WorkspacePremium, "Super")
-    object Pass : BottomNavItem("pass", Icons.Default.CardMembership, "Pass")
-    object SuperPass : BottomNavItem("superPass", Icons.Default.WorkspacePremium, "Super Pass")
-    object PassElite : BottomNavItem("passElite", Icons.Default.CardMembership, "Pass Elite")
+    object Tests : BottomNavItem("categoryList", Icons.Default.Description, "Categories")
+    object StudyPdfs : BottomNavItem("studyPdfs", Icons.Default.PictureAsPdf, "Study PDFs")
+    object Ebooks : BottomNavItem("ebooks", Icons.Default.MenuBook, "Ebooks")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -159,10 +159,8 @@ fun ExamPrepApp() {
     val bottomNavItems = listOf(
         BottomNavItem.Home,
         BottomNavItem.Tests,
-        BottomNavItem.Super,
-        BottomNavItem.Pass,
-        BottomNavItem.SuperPass,
-        BottomNavItem.PassElite
+        BottomNavItem.StudyPdfs,
+        BottomNavItem.Ebooks
     )
 
     ModalNavigationDrawer(
@@ -288,6 +286,15 @@ fun AppNavHost(
                 newTestSeries = allTestSeries.shuffled().take(3), // Example: another 3 for new
                 onTestSeriesClick = { testSeriesId -> navController.navigate("test_series/$testSeriesId") },
                 onAttemptedTestsClick = { navController.navigate("attemptedTests") },
+                onQuickActionClick = { title ->
+                    when (title) {
+                        "Ebooks" -> navController.navigate(BottomNavItem.Ebooks.route)
+                        "Study Notes" -> navController.navigate("studyNotes")
+                        "Previous Papers" -> navController.navigate("previousPapers")
+                        "Study PDFs", "Free PDFs" -> navController.navigate("freePdfs")
+                        else -> {}
+                    }
+                },
                 onViewAllEnrolled = { /* TODO: Navigate to a screen showing all enrolled tests */ },
                 onViewAllNew = { /* TODO: Navigate to a screen showing all new tests */ }
             )
@@ -314,6 +321,15 @@ fun AppNavHost(
                 newTestSeries = categoryTestSeries.shuffled().take(3), // Filtered new
                 onTestSeriesClick = { testSeriesId -> navController.navigate("test_series/$testSeriesId") },
                 onAttemptedTestsClick = { navController.navigate("attemptedTests") },
+                onQuickActionClick = { title ->
+                    when (title) {
+                        "Ebooks" -> navController.navigate(BottomNavItem.Ebooks.route)
+                        "Study Notes" -> navController.navigate("studyNotes")
+                        "Previous Papers" -> navController.navigate("previousPapers")
+                        "Study PDFs", "Free PDFs" -> navController.navigate("freePdfs")
+                        else -> {}
+                    }
+                },
                 onViewAllEnrolled = { /* TODO */ },
                 onViewAllNew = { /* TODO */ }
             )
@@ -353,20 +369,64 @@ fun AppNavHost(
                     navController.navigate(BottomNavItem.Home.route) { popUpTo(navController.graph.startDestinationId) { inclusive = true } }
                 },
                 onReattempt = {
-                    val testId = quizViewModel.uiState.value.test?.id
-                    if (testId != null) {
-                        navController.navigate("quiz/$testId") { popUpTo("result") { inclusive = true } }
-                    }
+                    navController.navigate("resultReview")
                 },
                 viewModel = quizViewModel
             )
         }
+        composable("resultReview") {
+            ResultReviewScreen(
+                viewModel = quizViewModel,
+                onBack = { navController.popBackStack() }
+            )
+        }
         composable("settings") { ComingSoonScreen { navController.popBackStack() } }
         composable("attemptedTests") { ComingSoonScreen { navController.popBackStack() } } // New route for attempted tests
-        composable(BottomNavItem.Super.route) { ComingSoonScreen { navController.popBackStack() } }
-        composable(BottomNavItem.Pass.route) { ComingSoonScreen { navController.popBackStack() } }
-        composable(BottomNavItem.SuperPass.route) { ComingSoonScreen { navController.popBackStack() } }
-        composable(BottomNavItem.PassElite.route) { ComingSoonScreen { navController.popBackStack() } }
+        composable(BottomNavItem.StudyPdfs.route) {
+            PdfSectionScreen(sectionKey = "free-pdfs", onBack = { navController.popBackStack() }, onViewPdf = { sectionKey, pdfId ->
+                navController.navigate("pdfSectionReader/$sectionKey/$pdfId")
+            })
+        }
+        composable("studyNotes") {
+            PdfSectionScreen(sectionKey = "study-notes", onBack = { navController.popBackStack() }, onViewPdf = { sectionKey, pdfId ->
+                navController.navigate("pdfSectionReader/$sectionKey/$pdfId")
+            })
+        }
+        composable("previousPapers") {
+            PdfSectionScreen(sectionKey = "prev-papers", onBack = { navController.popBackStack() }, onViewPdf = { sectionKey, pdfId ->
+                navController.navigate("pdfSectionReader/$sectionKey/$pdfId")
+            })
+        }
+        composable("freePdfs") {
+            PdfSectionScreen(sectionKey = "free-pdfs", onBack = { navController.popBackStack() }, onViewPdf = { sectionKey, pdfId ->
+                navController.navigate("pdfSectionReader/$sectionKey/$pdfId")
+            })
+        }
+        composable(
+            route = "pdfSectionReader/{sectionKey}/{pdfId}",
+            arguments = listOf(
+                navArgument("sectionKey") { type = NavType.StringType },
+                navArgument("pdfId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            PdfReaderScreen(
+                sectionKey = backStackEntry.arguments?.getString("sectionKey"),
+                pdfId = backStackEntry.arguments?.getString("pdfId"),
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(BottomNavItem.Ebooks.route) {
+            EbooksScreen(onReadClick = { bookId -> navController.navigate("ebookReader/$bookId") })
+        }
+        composable(
+            route = "ebookReader/{bookId}",
+            arguments = listOf(navArgument("bookId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            EbookReaderScreen(
+                bookId = backStackEntry.arguments?.getString("bookId"),
+                onBack = { navController.popBackStack() }
+            )
+        }
     }
 }
 
@@ -444,17 +504,18 @@ private fun HomeScreen(
     newTestSeries: List<TestSeries>,
     onTestSeriesClick: (String) -> Unit,
     onAttemptedTestsClick: () -> Unit,
+    onQuickActionClick: (String) -> Unit,
     onViewAllEnrolled: () -> Unit,
     onViewAllNew: () -> Unit,
 ) {
-    LazyColumn(modifier = Modifier.fillMaxSize().background(Color(0xFFF1F2F7))) {
+    LazyColumn(modifier = Modifier.fillMaxSize().background(Color(0xFFF4F6FB))) {
         item {
             // Placeholder for new banner items that look like the image
             // In a real app, MockRepository would have these.
             val mockBanners = listOf(
-                BannerItem("UP POLICE SI 2025", "Exam Date 14 & 15 March", Color(0xFF2196F3)),
-                BannerItem("SSC CGL Tier 1", "Updated Syllabus", Color(0xFF4CAF50)),
-                BannerItem("RRB Group D", "500+ Tests", Color(0xFFF44336))
+                BannerItem("Current Quiz", "Daily updated practice quiz", Color(0xFF355CDE)),
+                BannerItem("Free PDFs", "All study material unlocked", Color(0xFF1AAE9F)),
+                BannerItem("Ebooks", "Structured preparation guides", Color(0xFF8E54E9))
             )
             AutoScrollingBanner(items = mockBanners) // Using mock banners for now
             Spacer(Modifier.height(20.dp))
@@ -482,13 +543,15 @@ private fun HomeScreen(
         // Quick Action Grid
         item {
             val quickAccessItems = listOf(
+                FeatureItem("Current Quiz", Icons.Default.Quiz, null),
                 FeatureItem("Study Notes", Icons.Default.School, null),
-                FeatureItem("Live Test", Icons.Default.LiveTv, null),
-                FeatureItem("Live Quizzes", Icons.Default.Quiz, null),
-                FeatureItem("Rankers Test", Icons.Default.EmojiEvents, null),
-                FeatureItem("Prev. Papers", Icons.Default.Article, null)
+                FeatureItem("Free PDFs", Icons.Default.Description, null),
+                FeatureItem("Ebooks", Icons.Outlined.BookmarkBorder, null),
+                FeatureItem("Study PDFs", Icons.Default.PictureAsPdf, null),
+                FeatureItem("Courses", Icons.Default.School, null),
+                FeatureItem("Previous Papers", Icons.Default.Article, null)
             )
-            QuickActionGrid(items = quickAccessItems, onActionClick = { /* TODO */ }) // Pass actual items
+            QuickActionGrid(items = quickAccessItems, onActionClick = { item -> onQuickActionClick(item.title) })
             Spacer(Modifier.height(20.dp))
         }
 
@@ -872,14 +935,18 @@ private fun TestResultScreen(
     onReattempt: () -> Unit,
     viewModel: QuizViewModel
 ) {
-    val displayResult = result // We will rely on the ViewModel to provide the result
     var selectedTabIndex by remember { mutableStateOf(0) }
-    val tabs = listOf("Analysis", "Solutions", "Detailed Analysis")
+    val tabs = listOf("Overview", "Solutions", "Insights")
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Test Result") }, navigationIcon = { IconButton(onClick = onDone) { Icon(Icons.Default.ArrowBack, contentDescription = "Done") } }) }
+        topBar = {
+            TopAppBar(
+                title = { Text("Quiz Result") },
+                navigationIcon = { IconButton(onClick = onDone) { Icon(Icons.Default.ArrowBack, contentDescription = "Done") } }
+            )
+        }
     ) { innerPadding ->
-        Column(modifier = Modifier.padding(innerPadding)) {
+        Column(modifier = Modifier.padding(innerPadding).fillMaxSize().background(Color(0xFFF4F6FB))) {
             TabRow(selectedTabIndex = selectedTabIndex) {
                 tabs.forEachIndexed { index, title ->
                     Tab(selected = selectedTabIndex == index, onClick = { selectedTabIndex = index }) {
@@ -888,27 +955,126 @@ private fun TestResultScreen(
                 }
             }
             when (selectedTabIndex) {
-                0 -> AnalysisContent(displayResult, onReattempt)
-                1 -> SolutionsContent(viewModel)
-                2 -> DetailedAnalysisContent()
+                0 -> AnalysisContent(result = result, onReattempt = onReattempt)
+                1 -> SolutionsContent(viewModel = viewModel)
+                else -> DetailedAnalysisContent(result = result)
             }
         }
     }
 }
 
 @Composable
-private fun QuickActionGrid(items: List<FeatureItem>, onActionClick: (FeatureItem) -> Unit) {
-    val chunkedItems = items.chunked(4)
+private fun AnalysisContent(result: TestResult?, onReattempt: () -> Unit) {
+    if (result == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No result available.")
+        }
+        return
+    }
 
-    Column(modifier = Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        chunkedItems.forEach { rowItems ->
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                rowItems.forEach { item ->
-                    QuickActionItem(item, onActionClick, modifier = Modifier.weight(1f))
+    val attemptedParts = result.attempted.split("/")
+    val attempted = attemptedParts.getOrNull(0)?.toIntOrNull() ?: 0
+    val total = attemptedParts.getOrNull(1)?.toIntOrNull() ?: 0
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                Column(modifier = Modifier.fillMaxWidth().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Your Performance", style = MaterialTheme.typography.titleMedium, color = Color(0xFF6B7280))
+                    Spacer(Modifier.height(10.dp))
+                    Text(result.score, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = Color(0xFF2E67D1))
+                    Spacer(Modifier.height(6.dp))
+                    Text("Accuracy ${result.accuracy}", color = Color(0xFF4B5563))
+                    Spacer(Modifier.height(14.dp))
+                    Button(onClick = onReattempt, shape = RoundedCornerShape(12.dp)) { Text("Review Answers") }
                 }
-                repeat(4 - rowItems.size) {
-                    Spacer(modifier = Modifier.weight(1f))
+            }
+        }
+
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                MetricCard("Correct", result.correct.toString(), Color(0xFFE8F8EE), Color(0xFF1F8B4C), Modifier.weight(1f))
+                MetricCard("Wrong", result.incorrect.toString(), Color(0xFFFDECEC), Color(0xFFC62828), Modifier.weight(1f))
+                MetricCard("Unattempted", result.unattempted.toString(), Color(0xFFF3F4F6), Color(0xFF4B5563), Modifier.weight(1f))
+            }
+        }
+
+        item {
+            Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Attempt Summary", fontWeight = FontWeight.SemiBold)
+                    Text("Attempted: $attempted / $total")
+                    Text("Percentile: ${result.percentile}")
+                    Text("Rank: ${result.rank}")
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MetricCard(title: String, value: String, background: Color, textColor: Color, modifier: Modifier = Modifier) {
+    Card(modifier = modifier, shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = background)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(value, fontWeight = FontWeight.Bold, color = textColor, fontSize = 20.sp)
+            Text(title, fontSize = 12.sp, color = Color(0xFF4B5563))
+        }
+    }
+}
+
+@Composable
+private fun SolutionsContent(viewModel: QuizViewModel) {
+    val questions by viewModel.resultQuestions.collectAsState()
+    val uiState by viewModel.uiState.collectAsState()
+
+    if (questions.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("Solutions will appear after submission.")
+        }
+        return
+    }
+
+    LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        items(questions) { question ->
+            val userAnswer = uiState.userAnswers.find { it.questionId == question.id }?.selectedOption
+            Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(question.questionText, fontWeight = FontWeight.SemiBold)
+                    Text("Your Answer: ${userAnswer ?: "Not Attempted"}", color = if (userAnswer == question.correctAnswer) Color(0xFF1F8B4C) else Color(0xFFC62828))
+                    Text("Correct Answer: ${question.correctAnswer}", color = Color(0xFF1F8B4C))
+                    question.explanation?.let { Text("Explanation: $it", color = Color(0xFF4B5563)) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailedAnalysisContent(result: TestResult?) {
+    if (result == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No analysis available.") }
+        return
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+            Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Detailed Insights", fontWeight = FontWeight.Bold)
+                Text("• Correct answers add +2 marks.")
+                Text("• Incorrect answers deduct -1 mark.")
+                Text("• Focus on accuracy to increase overall score.")
+            }
+        }
+        Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+            Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Current Stats", fontWeight = FontWeight.Bold)
+                Text("Correct: ${result.correct}")
+                Text("Wrong: ${result.incorrect}")
+                Text("Unattempted: ${result.unattempted}")
             }
         }
     }
@@ -916,98 +1082,118 @@ private fun QuickActionGrid(items: List<FeatureItem>, onActionClick: (FeatureIte
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun QuickActionItem(item: FeatureItem, onActionClick: (FeatureItem) -> Unit, modifier: Modifier = Modifier) {
-    Card(modifier = modifier.clickable { onActionClick(item) }.aspectRatio(1f), shape = RoundedCornerShape(12.dp), elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center, modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp).fillMaxSize()) {
-            Icon(item.icon, contentDescription = item.title)
-            Text(item.title, fontSize = 12.sp, textAlign = TextAlign.Center)
+private fun ResultReviewScreen(
+    viewModel: QuizViewModel,
+    onBack: () -> Unit
+) {
+    val questions by viewModel.resultQuestions.collectAsState()
+    val answers by viewModel.uiState.collectAsState()
+    var currentIndex by remember { mutableStateOf(0) }
+    val selectedByUser = remember { mutableStateOf(mutableMapOf<String, String?>()) }
+
+    LaunchedEffect(questions, answers.userAnswers) {
+        if (selectedByUser.value.isEmpty()) {
+            selectedByUser.value.putAll(answers.userAnswers.associate { it.questionId to it.selectedOption })
         }
     }
-}
 
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun HorizontalPagerIndicator(pagerState: PagerState) {
-    Row(Modifier.height(50.dp).fillMaxWidth().padding(10.dp), horizontalArrangement = Arrangement.Center) {
-        repeat(pagerState.pageCount) { iteration ->
-            val color = if (pagerState.currentPage == iteration) Color.DarkGray else Color.LightGray
-            Box(modifier = Modifier.padding(2.dp).clip(CircleShape).background(color).size(10.dp))
-        }
-    }
-}
-
-@Composable
-private fun SectionTitle(title: String, action: String, onActionClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(title, fontWeight = FontWeight.SemiBold)
-        Text(action, color = Color(0xFF2D69CC), modifier = Modifier.clickable { onActionClick() })
-    }
-}
-
-@Composable
-private fun AnalysisContent(result: TestResult?, onReattempt: () -> Unit) {
-    Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        if (result != null) {
-            Text("Score: ${result.score}", style = MaterialTheme.typography.headlineMedium)
-            Text("Accuracy: ${result.accuracy}", style = MaterialTheme.typography.bodyLarge)
-            // Add more result details here
-        } else {
-            Text("No result available.")
-        }
-        Spacer(Modifier.height(16.dp))
-        Button(onClick = onReattempt) { Text("Re-attempt") }
-    }
-}
-
-@Composable
-private fun SolutionsContent(viewModel: QuizViewModel) {
-    // This will require fetching all questions if not already in memory
-    val uiState by viewModel.uiState.collectAsState()
-    val questionIds = uiState.questionIds
-    
-    if (questionIds.isEmpty()) {
+    if (questions.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No questions to show solutions for.")
+            Text("No submitted questions found for review.")
         }
         return
     }
 
-    LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        items(questionIds.size) { index ->
-            // In a real app, you might want to fetch questions on demand here too
-            // For simplicity, we'll assume we can load them if needed.
-            // This might still be a performance bottleneck for 150 questions if not optimized.
-            val question = uiState.currentQuestion // This is just the currently viewed question in QuizScreen
+    val safeIndex = currentIndex.coerceIn(0, questions.lastIndex)
+    val question = questions[safeIndex]
+    val selectedOption = selectedByUser.value[question.id]
 
-            // To show all solutions, you would ideally iterate over all questions
-            // For now, let's just show a placeholder or if currentQuestion is set
-            if (question != null) {
-                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Q${index + 1}: ${question.questionText}", fontWeight = FontWeight.Bold)
-                        question.imageUrl?.let { imageUrl ->
-                            AsyncImage(
-                                model = imageUrl,
-                                contentDescription = "Question Diagram",
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
-                            )
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Review Attempt") },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .background(Color(0xFFF4F6FB))
+                .padding(16.dp)
+        ) {
+            Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                    Text("Question ${safeIndex + 1} / ${questions.size}", color = Color(0xFF6B7280))
+                    Spacer(Modifier.height(8.dp))
+                    Text(question.questionText, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                Column(modifier = Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    question.options.forEach { option ->
+                        val isSelected = selectedOption == option
+                        val isCorrect = option == question.correctAnswer
+                        val optionColor = when {
+                            selectedOption == null -> Color(0xFFF9FAFB)
+                            isCorrect -> Color(0xFFE8F8EE)
+                            isSelected && !isCorrect -> Color(0xFFFDECEC)
+                            else -> Color(0xFFF9FAFB)
                         }
-                        question.options.forEach { option ->
-                            Text("- $option")
+                        val borderColor = when {
+                            selectedOption == null -> Color(0xFFE5E7EB)
+                            isCorrect -> Color(0xFF1F8B4C)
+                            isSelected && !isCorrect -> Color(0xFFC62828)
+                            else -> Color(0xFFE5E7EB)
                         }
-                        Text("Correct Answer: ${question.correctAnswer}", color = Color.Green.copy(alpha = 0.7f))
-                        question.explanation?.let {
-                            Text("Explanation: $it")
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(optionColor)
+                                .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+                                .clickable { selectedByUser.value[question.id] = option }
+                                .padding(horizontal = 12.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(option)
                         }
                     }
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+            val nowSelected = selectedByUser.value[question.id]
+            if (nowSelected != null) {
+                Card(shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            if (nowSelected == question.correctAnswer) "Correct selection" else "Incorrect selection",
+                            color = if (nowSelected == question.correctAnswer) Color(0xFF1F8B4C) else Color(0xFFC62828),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text("Correct answer: ${question.correctAnswer}", color = Color(0xFF1F8B4C))
+                        Text("Explanation: ${question.explanation ?: "No explanation available."}", color = Color(0xFF4B5563))
+                    }
+                }
+            }
+
+            Spacer(Modifier.weight(1f))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                OutlinedButton(onClick = { if (currentIndex > 0) currentIndex -= 1 }, enabled = currentIndex > 0) {
+                    Text("Previous")
+                }
+                Button(onClick = { if (currentIndex < questions.lastIndex) currentIndex += 1 }, enabled = currentIndex < questions.lastIndex) {
+                    Text(if (currentIndex == questions.lastIndex) "Completed" else "Next")
                 }
             }
         }
     }
 }
-
-@Composable
-private fun DetailedAnalysisContent() {}
 
 @Composable
 fun CircularTimer(time: String, progress: Float) {
