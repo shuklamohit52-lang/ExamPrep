@@ -34,6 +34,9 @@ class QuizViewModel(private val supabaseService: SupabaseService) : ViewModel() 
     private val _testResult = MutableStateFlow<TestResult?>(null)
     val testResult: StateFlow<TestResult?> = _testResult.asStateFlow()
 
+    private val _resultQuestions = MutableStateFlow<List<Question>>(emptyList())
+    val resultQuestions: StateFlow<List<Question>> = _resultQuestions.asStateFlow()
+
     private var timerJob: Job? = null
 
     fun loadTest(testId: String) {
@@ -51,6 +54,8 @@ class QuizViewModel(private val supabaseService: SupabaseService) : ViewModel() 
                     initialUserAnswers[0] = initialUserAnswers[0].copy(status = QuestionStatus.UNANSWERED)
                 }
 
+                _testResult.value = null
+                _resultQuestions.value = emptyList()
                 _uiState.update {
                     it.copy(
                         test = test, // Store only metadata
@@ -97,55 +102,55 @@ class QuizViewModel(private val supabaseService: SupabaseService) : ViewModel() 
 
     fun finishTest() {
         timerJob?.cancel()
-        val uiState = _uiState.value
-        val allQuestionIds = uiState.questionIds
-        var correct = 0
-        var incorrect = 0
-
-        // You will need to fetch actual questions to compare answers, or have correct_answer in UserAnswer if doing client-side scoring.
-        // For now, let's assume `supabaseService.getQuestionById` can be called here if needed, but it's more efficient to calculate on server or store correctAnswer in UserAnswer
-        // For this example, we'll fetch them on-demand if not already in UIState. The best practice for scoring is often server-side.
+        val snapshot = _uiState.value
+        val allQuestionIds = snapshot.questionIds
 
         viewModelScope.launch {
-            allQuestionIds.forEach { questionId ->
-                val userAnswer = uiState.userAnswers.find { it.questionId == questionId }
-                if (userAnswer != null && userAnswer.selectedOption != null) {
-                    val question = supabaseService.getQuestionById(questionId) // Fetch question to get correct answer
-                    if (question != null) {
-                        if (userAnswer.selectedOption == question.correctAnswer) {
-                            correct++
-                        } else {
-                            incorrect++
-                        }
+            val questions = allQuestionIds.mapNotNull { questionId ->
+                supabaseService.getQuestionById(questionId)
+            }
+
+            _resultQuestions.value = questions
+
+            var correct = 0
+            var incorrect = 0
+
+            questions.forEach { question ->
+                val userAnswer = snapshot.userAnswers.find { it.questionId == question.id }?.selectedOption
+                if (userAnswer != null) {
+                    if (userAnswer == question.correctAnswer) {
+                        correct++
+                    } else {
+                        incorrect++
                     }
                 }
             }
 
             val totalQuestions = allQuestionIds.size
-            val attemptedCount = uiState.userAnswers.count { it.status == QuestionStatus.ANSWERED || it.status == QuestionStatus.ANSWERED_AND_MARKED_FOR_REVIEW }
+            val attemptedCount = snapshot.userAnswers.count { it.selectedOption != null }
             val unattempted = totalQuestions - attemptedCount
-            val score = correct * 2 - incorrect // Assuming +2 for correct, -1 for incorrect
+            val score = correct * 2 - incorrect
             val accuracy = if (attemptedCount > 0) (correct.toFloat() / attemptedCount.toFloat()) * 100 else 0f
 
-            val result = TestResult(
-                rank = "N/A", // Placeholder
+            _testResult.value = TestResult(
+                rank = "N/A",
                 score = "$score/${totalQuestions * 2}",
-                percentile = "N/A", // Placeholder
+                percentile = "N/A",
                 accuracy = "${String.format("%.2f", accuracy)}%",
                 attempted = "$attemptedCount/$totalQuestions",
                 correct = correct,
                 incorrect = incorrect,
                 unattempted = unattempted,
-                sectionalSummary = emptyList(), // Placeholder
-                averageScore = 0, // Placeholder
-                bestScore = 0 // Placeholder
+                sectionalSummary = emptyList(),
+                averageScore = 0,
+                bestScore = 0
             )
-            _testResult.value = result
         }
     }
 
     fun clearTestResult() {
         _testResult.value = null
+        _resultQuestions.value = emptyList()
     }
 
     fun selectAnswer(option: String) {
