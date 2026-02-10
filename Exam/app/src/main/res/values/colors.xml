@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="material_dynamic_primary_40">#FF6200EE</color>
+    <color name="material_dynamic_primary_50">#FF3700B3</color>
+    <color name="material_dynamic_primary_95">#FFBB86FC</color>
+    <color name="material_dynamic_secondary_40">#FF03DAC5</color>
+    <color name="material_dynamic_secondary_50">#FF018786</color>
+    <color name="material_dynamic_secondary_95">#FF03DAC5</color>
+</resources>
